@@ -1,6 +1,7 @@
 .global _start
 
 .equ PIXEL_BUFFER, 0xC8000000 // Pixel buffer base address
+.equ CHAR_BUFFER, 0xC9000000 // Chracter buffer base address
 
 _start:
         bl      draw_test_screen
@@ -12,7 +13,7 @@ end:
 // This subroutine draws a point on the screen at the specified (x, y) coordinates in the indicated color c. 
 // The subroutine should check that the coordinates supplied are valid, i.e., x in [0, 319] and y in [0, 239]. 
 // Hint: This subroutine should only access the pixel buffer.
-// INPUT: A1 -> x-coordinate, A2 -> y-coordinate, A3 -> color half-word  TODO: VALIDATE THESE ARGUMENTS
+// INPUT: A1 -> x-coordinate, A2 -> y-coordinate, A3 -> color half-word
 VGA_draw_point_ASM:
     PUSH {V1-V2, LR}
     // INPUT VALIDATION
@@ -24,13 +25,14 @@ VGA_draw_point_ASM:
     BLT VGA_draw_point_ASM_end // Exit function if y < 0
     CMP A2, #239
     BGT VGA_draw_point_ASM_end // Exit function if y > 239
+    // SUBROUTINE LOGIC
     LDR V1, =PIXEL_BUFFER // Load pixel buffer base address
     MOV V2, A2 // Instantiate offset value to y-coordinate
     LSL V2, #10 // Shift y-coordinate up 10 bits
     LSL A1, #1 // Shift x-coordinate up 1 bit temporarily
     ADD V2, V2, A1 // Add in x-coordinate
     ASR A1, #1 // Shift x-coordinate back down 1 bit to original value
-    STRH A3, [V1, V2] // Store lower 16 bits in colour register A3 into base address + offset
+    STRH A3, [V1, V2] // Store lower 16 bits in colour register A3 into base address + x-y offset
     
     VGA_draw_point_ASM_end:
         POP {V1-V2, PC}
@@ -41,24 +43,24 @@ VGA_draw_point_ASM:
 // location on the screen.
 VGA_clear_pixelbuff_ASM:
     PUSH {LR}
-    MOV A2, #0 // Instantiate row index
+    MOV A1, #0 // Instantiate col index
     MOV A3, #0 // Colour value set to 0 to clear buffer
 
-    for_each_row:
-        MOV A1, #0 // Instantiate row index
-        CMP A2, #240
-        BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all rows 0-219
-
-    for_each_col:
+    for_each_col_in_pixelbuff:
+        MOV A2, #0 // Instantiate row index
         CMP A1, #320
-        BEQ for_each_row_end // Break from outer loop when we have iterated through all cols 0-319
-        BL VGA_draw_point_ASM // Branch to subroutine to clear buffer at current (x,y) coordinate
-        ADD A1, A1, #1 // Increment col index
-        B for_each_col
+        BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all cols 0-319
 
-    for_each_row_end:
+    for_each_row_in_pixelbuff:
+        CMP A1, #240
+        BEQ for_each_row_in_pixelbuff_end // Break from outer loop when we have iterated through all rows 0-239
+        BL VGA_draw_point_ASM // Branch to subroutine to clear buffer at current (x,y) coordinate
         ADD A2, A2, #1 // Increment row index
-        B for_each_row
+        B for_each_row_in_pixelbuff
+
+    for_each_row_in_pixelbuff_end:
+        ADD A1, A1, #1 // Increment col index
+        B for_each_col_in_pixelbuff
 
     VGA_clear_pixelbuff_ASM_end:
         POP {PC}
@@ -66,13 +68,55 @@ VGA_clear_pixelbuff_ASM:
 // This subroutine writes the ASCII code c to the screen at (x, y). The subroutine should check that the 
 // coordinates supplied are valid, i.e., x in [0, 79] and y in [0, 59]. 
 // Hint: This subroutine should only access the character buffer.
+// INPUT: A1 -> x-coordinate, A2 -> y-coordinate, A3 -> ASCII value of character
 VGA_write_char_ASM:
+    PUSH {V1-V2, LR}
+    // INPUT VALIDATION
+    CMP A1, #0
+    BLT VGA_write_char_ASM_end // Exit function if x < 0
+    CMP A1, #79
+    BGT VGA_write_char_ASM_end // Exit function if x > 79
+    CMP A2, #0
+    BLT VGA_write_char_ASM_end // Exit function if y < 0
+    CMP A2, #59
+    BGT VGA_write_char_ASM_end // Exit function if y > 59
+    // SUBROUTINE LOGIC
+    LDR V1, =CHAR_BUFFER
+    MOV V2, A2 // Instantiate offset value to y-coordinate
+    LSL V2, #7 // Shift y-coordinate up 7 bits
+    ADD V2, V2, A1 // Add in x-coordinate
+    STRB A3, [V1, V2] // Store ASCII value into character buffer at base address + x-y offset
+
+    VGA_write_char_ASM_end:
+        POP {V1-V2, PC}
 
 // This subroutine clears (sets to 0) all the valid memory locations in the character buffer. It takes no 
-// arguments and returns nothing. Hint: You can implement this function by calling VGA_write_char_ASM with 
-// a character value of zero for every valid location on the screen.
-
+// arguments and returns nothing. 
+// Hint: You can implement this function by calling VGA_write_char_ASM with a character value of zero for 
+// every valid location on the screen.
 VGA_clear_charbuff_ASM:
+    PUSH {LR}
+    MOV A2, #0 // Instantiate row index
+    MOV A3, #0 // ASCII value set to 0 to clear buffer
+
+    for_each_row_in_charbuff:
+        MOV A1, #0 // Instantiate row index
+        CMP A2, #60
+        BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all rows 0-219
+
+    for_each_col_in_charbuff:
+        CMP A1, #80
+        BEQ for_each_row_in_charbuff_end // Break from outer loop when we have iterated through all cols 0-319
+        BL VGA_write_char_ASM // Branch to subroutine to clear buffer at current (x,y) coordinate
+        ADD A1, A1, #1 // Increment col index
+        B for_each_col_in_charbuff
+
+    for_each_row_in_charbuff_end:
+        ADD A2, A2, #1 // Increment row index
+        B for_each_row_in_charbuff
+
+    VGA_clear_charbuff_ASM_end:
+        POP {PC}
 
 
 draw_test_screen:
