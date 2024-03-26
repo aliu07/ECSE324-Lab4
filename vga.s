@@ -47,7 +47,7 @@ VGA_clear_pixelbuff_ASM:
     MOV A3, #0 // Colour value set to 0 to clear buffer
 
     for_each_row_in_pixelbuff:
-        MOV A1, #0 // Instantiate row index
+        MOV A1, #0 // Instantiate col index
         CMP A2, #240
         BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all rows 0-219
 
@@ -100,7 +100,7 @@ VGA_clear_charbuff_ASM:
     MOV A3, #0 // ASCII value set to 0 to clear buffer
 
     for_each_row_in_charbuff:
-        MOV A1, #0 // Instantiate row index
+        MOV A1, #0 // Instantiate col index
         CMP A2, #60
         BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all rows 0-219
 
