@@ -43,24 +43,24 @@ VGA_draw_point_ASM:
 // location on the screen.
 VGA_clear_pixelbuff_ASM:
     PUSH {LR}
-    MOV A1, #0 // Instantiate col index
+    MOV A2, #0 // Instantiate row index
     MOV A3, #0 // Colour value set to 0 to clear buffer
 
-    for_each_col_in_pixelbuff:
-        MOV A2, #0 // Instantiate row index
-        CMP A1, #320
-        BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all cols 0-319
-
     for_each_row_in_pixelbuff:
-        CMP A1, #240
-        BEQ for_each_row_in_pixelbuff_end // Break from outer loop when we have iterated through all rows 0-239
-        BL VGA_draw_point_ASM // Branch to subroutine to clear buffer at current (x,y) coordinate
-        ADD A2, A2, #1 // Increment row index
-        B for_each_row_in_pixelbuff
+        MOV A1, #0 // Instantiate row index
+        CMP A2, #240
+        BEQ VGA_clear_pixelbuff_ASM_end // Break from inner loop when we have iterated through all rows 0-219
 
-    for_each_row_in_pixelbuff_end:
+    for_each_col_in_pixelbuff:
+        CMP A1, #320
+        BEQ for_each_row_in_pixelbuff_end // Break from outer loop when we have iterated through all cols 0-319
+        BL VGA_draw_point_ASM // Branch to subroutine to clear buffer at current (x,y) coordinate
         ADD A1, A1, #1 // Increment col index
         B for_each_col_in_pixelbuff
+
+    for_each_row_in_pixelbuff_end:
+        ADD A2, A2, #1 // Increment row index
+        B for_each_row_in_pixelbuff
 
     VGA_clear_pixelbuff_ASM_end:
         POP {PC}
