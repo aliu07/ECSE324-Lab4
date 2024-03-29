@@ -11,39 +11,50 @@ B SERVICE_FIQ       // FIQ interrupt vector
 /*--- Undefined instructions --------------------------------------*/
 SERVICE_UND:
     B SERVICE_UND
+
 /*--- Software interrupts ----------------------------------------*/
 SERVICE_SVC:
     B SERVICE_SVC
+
 /*--- Aborted data reads ------------------------------------------*/
 SERVICE_ABT_DATA:
     B SERVICE_ABT_DATA
+
 /*--- Aborted instruction fetch -----------------------------------*/
 SERVICE_ABT_INST:
     B SERVICE_ABT_INST
+
 /*--- IRQ ---------------------------------------------------------*/
 SERVICE_IRQ:
     PUSH {R0-R7, LR}
-/* Read the ICCIAR from the CPU Interface */
+    /* Read the ICCIAR from the CPU Interface */
     LDR R4, =0xFFFEC100
     LDR R5, [R4, #0x0C] // read from ICCIAR
-/* NOTE: Check which interrupt has occurred (check interrupt IDs)
-   Then call the corresponding ISR
-   If the ID is not recognized, branch to UNEXPECTED
-   See the assembly example provided in the DE1-SoC Computer Manual
-   on page 46 */
-Pushbutton_check:
-    CMP R5, #79 // ID of PS/2 keyboard
+    /* NOTE: Check which interrupt has occurred (check interrupt IDs)
+    Then call the corresponding ISR
+    If the ID is not recognized, branch to UNEXPECTED
+    See the assembly example provided in the DE1-SoC Computer Manual
+    on page 46 */
+
+Keyboard_check:
+    CMP R5, #79 // Check if ID of interrupt raiser is PS/2's
+
 UNEXPECTED:
     BNE UNEXPECTED      // if not recognized, stop here
     BL PS2_ISR
+
 EXIT_IRQ:
 /* Write to the End of Interrupt Register (ICCEOIR) */
     STR R5, [R4, #0x10] // write to ICCEOIR
     POP {R0-R7, LR}
-SUBS PC, LR, #4
+    SUBS PC, LR, #4
+
 /*--- FIQ ---------------------------------------------------------*/
 SERVICE_FIQ:
     B SERVICE_FIQ
+
+
+
 
 
 .global _start
@@ -51,6 +62,11 @@ SERVICE_FIQ:
 .equ PIXEL_BUFFER, 0xC8000000 // Pixel buffer base address
 .equ CHAR_BUFFER, 0xC9000000 // Chracter buffer base address
 .equ KBD_REGISTER, 0xFF200100 // PS/2 data register address
+
+DATA: .byte 0 // Current keyboard data set to 0 initially. It will hold the make signal of the most recently pressed key.
+      .space 3
+CURSOR_POS: .byte 0, 0 // Current cursor position (x, y) -> First byte is x position, second is y position
+            .space 2
 
 GoLBoard:
 	//  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
@@ -87,24 +103,318 @@ _start:
     // enable IRQ interrupts in the processor
     MOV R0, #0b01010011      // IRQ unmasked, MODE = SVC
     MSR CPSR_c, R0
+    
+    // ENABLING INTERRUPTS FOR KEYBOARD
+    LDR A1, =KBD_REGISTER // Load keyboard register address
+    MOV A2, #1
+    STR A2, [A1, #4] // Enable interrupts for the keyboard
 
-	// Clear buffer
-	BL VGA_clear_pixelbuff_ASM
-	// Colour
-	MOV A1, #0xff
-	LSL A1, #8
-	ADD A1, A1, #0xff
-    BL GoL_draw_grid_ASM
-    // New colour
+    // SETUP BOARD
+    BL VGA_clear_pixelbuff_ASM
+    
     MOV A1, #0xff
-	// Initiate game board
+    LSL A1, #8
+    ADD A1, A1, #0xff
+    BL GoL_draw_grid_ASM
+
+    MOV A1, #0xff
     BL GoL_draw_board_ASM
-	
+
+    MOV A1, #0
+    MOV A2, #0
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff
+    BL GoL_draw_cursorxy_ASM
+
+    // SETUP CURSOR
+    LDR A1, =CURSOR_POS
+    MOV A2, #0
+    STRB A2, [A1]
+    STRB A2, [A1, #1]
+
 IDLE:
+    // POLL DATA VAR
+    LDR V1, =DATA // Load address of DATA variable
+    LDR A1, [V1] // Load variable contents into A1
+    CMP A1, #0x1D // W key press
+    BEQ move_cursor_up
+    CMP A1, #0x1C // A key press
+    BEQ move_cursor_left
+    CMP A1, #0x1B // S key press
+    BEQ move_cursor_down
+    CMP A1, #0x23 // D key press
+    BEQ move_cursor_right
+    CMP A1, #0x29 // Spacebar key press
+    BEQ toggle_state_at_cursor_pos // Change to poll release first
+    CMP A1, #0x31 // N key press
+    B IDLE // Continue polling
+
+move_cursor_up:
+    LDR V1, =CURSOR_POS // Load address of cursor position
+    LDRB A2, [V1, #1] // Get 2nd byte -> y position
+    LDRB A1, [V1] // Get 1ast byte -> x position
+    LDR V2, =GoLBoard // Load address of game board
+    MOV V3, A2 // Move y into V3
+    LSL V3, #4 // Compute y offset (multiply by 16)
+    ADD V3, V3, A1 // Add x offset
+    LDRB V4, [V2, V3] // Get byte at base address + offset
+    CMP V4, #1 // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff // Move blue into A3 for colour if so
+    MOVNE A3, #0x0 // Else move black into A3
+    SUB V3, V3, A1 // Subtract x offset
+    LSR V3, #4 // Divide by 16 to get original y
+    MOV V4, A1 // Move x into V4
+    BL GoL_fill_gridxy_ASM // Clear cursor in current position
+    CMP V3, #0 // Check if y is at 0
+    SUBNE V3, V3, #1 // Decrement by 1 if y != 0
+    STRB V3, [V1, #1] // Store new y position into memory
+    // DRAW CURSOR
+    MOV A1, V4 // Move x into A1
+    MOV A2, V3 // Move y into A2
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff // Instantiate white color
+    BL GoL_draw_cursorxy_ASM // Draw cursor
+	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
+   	LDR V1, =DATA
+   	MOV A1, #0x0
+    STRB A1, [V1]
 	B IDLE
+
+move_cursor_down:
+    LDR V1, =CURSOR_POS // Load address of cursor position
+    LDRB A2, [V1, #1] // Get 2nd byte -> y position
+    LDRB A1, [V1] // Get 1ast byte -> x position
+    LDR V2, =GoLBoard // Load address of game board
+    MOV V3, A2 // Move y into V3
+    LSL V3, #4 // Compute y offset (multiply by 16)
+    ADD V3, V3, A1 // Add x offset
+    LDRB V4, [V2, V3] // Get byte at base address + offset
+    CMP V4, #1 // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff // Move blue into A3 for colour if so
+    MOVNE A3, #0x0 // Else move black into A3
+    SUB V3, V3, A1 // Subtract x offset
+    LSR V3, #4 // Divide by 16 to get original y
+    MOV V4, A1 // Move x into V4
+    BL GoL_fill_gridxy_ASM // Clear cursor in current position
+    CMP V3, #11 // Check if y is at 11
+    ADDNE V3, V3, #1 // Increment by 1 if y != 0
+    STRB V3, [V1, #1] // Store new y position into memory
+    // DRAW CURSOR
+    MOV A1, V4 // Move x into A1
+    MOV A2, V3 // Move y into A2
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff // Instantiate white color
+    BL GoL_draw_cursorxy_ASM // Draw cursor
+	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
+   	LDR V1, =DATA
+   	MOV A1, #0x0
+    STRB A1, [V1]
+	B IDLE
+
+move_cursor_left:
+    LDR V1, =CURSOR_POS // Load address of cursor position
+    LDRB A2, [V1, #1] // Get 2nd byte -> y position
+    LDRB A1, [V1] // Get 1ast byte -> x position
+    LDR V2, =GoLBoard // Load address of game board
+    MOV V3, A2 // Move y into V3
+    LSL V3, #4 // Compute y offset (multiply by 16)
+    ADD V3, V3, A1 // Add x offset
+    LDRB V4, [V2, V3] // Get byte at base address + offset
+    CMP V4, #1 // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff // Move blue into A3 for colour if so
+    MOVNE A3, #0x0 // Else move black into A3
+    SUB V3, V3, A1 // Subtract x offset
+    LSR V3, #4 // Divide by 16 to get original y
+    MOV V4, A1 // Move x into V4
+    BL GoL_fill_gridxy_ASM // Clear cursor in current position
+    CMP V4, #0 // Check if x is at 0
+    SUBNE V4, V4, #1 // Decrement by 1 if x != 0
+    STRB V4, [V1] // Store new x position into memory
+    // DRAW CURSOR
+    MOV A1, V4 // Move x into A1
+    MOV A2, V3 // Move y into A2
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff // Instantiate white color
+    BL GoL_draw_cursorxy_ASM // Draw cursor
+	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
+   	LDR V1, =DATA
+   	MOV A1, #0x0
+    STRB A1, [V1]
+	B IDLE
+
+move_cursor_right:
+    LDR V1, =CURSOR_POS // Load address of cursor position
+    LDRB A2, [V1, #1] // Get 2nd byte -> y position
+    LDRB A1, [V1] // Get 1ast byte -> x position
+    LDR V2, =GoLBoard // Load address of game board
+    MOV V3, A2 // Move y into V3
+    LSL V3, #4 // Compute y offset (multiply by 16)
+    ADD V3, V3, A1 // Add x offset
+    LDRB V4, [V2, V3] // Get byte at base address + offset
+    CMP V4, #1 // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff // Move blue into A3 for colour if so
+    MOVNE A3, #0x0 // Else move black into A3
+    SUB V3, V3, A1 // Subtract x offset
+    LSR V3, #4 // Divide by 16 to get original y
+    MOV V4, A1 // Move x into V4
+    BL GoL_fill_gridxy_ASM // Clear cursor in current position
+    CMP V4, #15 // Check if x is at 15
+    ADDNE V4, V4, #1 // Increment by 1 if x != 0
+    STRB V4, [V1] // Store new x position into memory
+    // DRAW CURSOR
+    MOV A1, V4 // Move x into A1
+    MOV A2, V3 // Move y into A2
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff // Instantiate white color
+    BL GoL_draw_cursorxy_ASM // Draw cursor
+	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
+   	LDR V1, =DATA
+   	MOV A1, #0x0
+    STRB A1, [V1]
+	B IDLE
+
+toggle_state_at_cursor_pos:
+
+update_GoL_board:
+
+
+
 
 
 /*---------- GoL DRIVERS ----------*/
+
+// This subroutine draws a cursor at location (x, y), 0 <= x < 16, 0 <= y < 12 with colour c
+// INPUTS: A1 -> x, A2 -> y, A3 -> Colour c
+GoL_draw_cursorxy_ASM:
+    PUSH {V1-V4, LR}
+    // INPUT VALIDATION
+    CMP A1, #0
+    BLT GoL_draw_cursorxy_ASM_end // Exit if x < 0
+    CMP A1, #16
+    BGE GoL_draw_cursorxy_ASM_end // Exit if x >= 16
+    CMP A2, #0
+    BLT GoL_draw_cursorxy_ASM_end // Exit if y < 0
+    CMP A2, #12
+    BGE GoL_draw_cursorxy_ASM_end // Exit if y >= 12
+    // CALCULATING PIXEL X & Y
+    MOV V4, #20 // Move constant 20 into V4
+    MOV V1, A1 // Move x to V1
+    MUL V1, V1, V4 // Multiply x by 20 to get pixel x-coordinate
+    ADDNE V1, V1, #1 // Add 1 to x1
+    MOV V2, A2 // Move y to V2
+    MUL V2, V2, V4 // Multiply y by 20 to get pixel y-coordinate
+    ADDNE V2, V2, #1 // Add 1 to y1
+    // DRAWING CURSOR
+    MOV A1, V1 // Move x into A1
+    MOV A2, V2 // Move y into A2
+    ADD A1, A1, #6
+    ADD A2, A2, #6
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #6
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #5
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #4
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #5
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #7
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #9
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #10
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #10
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #6
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A2, A2, #1
+    SUB A1, A1, #7
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #2
+    BL VGA_draw_point_ASM
+    ADD A1, A1, #1
+    BL VGA_draw_point_ASM
+
+    GoL_draw_cursorxy_ASM_end:
+        POP {V1-V4, PC}
 
 // This subroutine fills grid locations (x, y), 0 ≤ x < 16, 0 ≤ y < 12 with colour c if GoLBoard[y][x] == 1.
 // INPUT: A1 -> Colour c
@@ -138,6 +448,14 @@ GoL_draw_board_ASM:
         B for_each_row // Branch to next iteration
 
     GoL_draw_board_ASM_end:
+        // DRAW CURSOR
+        LDR V1, =CURSOR_POS
+        LDRB A1, [V1]
+        LDRB A2, [V1, #1]
+        MOV A3, #0xff
+        LSL A3, #8
+        ADD A3, A3, #0xff
+        BL GoL_draw_cursorxy_ASM
         POP {V1-V4, PC}
 
 // This subroutine fills the area of grid location (x, y) with colour c.
@@ -447,12 +765,16 @@ VGA_clear_charbuff_ASM:
 // should return 0.
 // OUTPUT: A1 -> RVALID bit
 read_PS2_data_ASM:
-    PUSH {V1-V2, LR}
+    PUSH {V1-V4, LR}
     LDR V1, =KBD_REGISTER // Load address of data register
     LDR V2, [V1] // Load contents of data register into V2
+    MOV V3, V2 // Duplicate data into V3
     LSR V2, #15 // Shift right by 15 bits
     AND A1, V2, #0x1 // Return MSB read i.e. RVALID bit in A1
-    POP {V1-V2, PC}
+    LDR V4, =DATA // Load address of DATA variable in memory
+    AND V3, V3, #0xff // Keep only last 8 bits (data content)
+    STRB V3, [V4] // Store into memory
+    POP {V1-V4, PC}
 
 
 
@@ -462,27 +784,27 @@ read_PS2_data_ASM:
 
 CONFIG_GIC:
     PUSH {LR}
-/* To configure the FPGA KEYS interrupt (ID 73):
-* 1. set the target to cpu0 in the ICDIPTRn register
-* 2. enable the interrupt in the ICDISERn register */
-/* CONFIG_INTERRUPT (int_ID (R0), CPU_target (R1)); */
-/* NOTE: you can configure different interrupts
-   by passing their IDs to R0 and repeating the next 3 lines */
-    MOV R0, #73            // KEY port (Interrupt ID = 73)
+    /* To configure the PS/2 keyboard interrupt (ID 79):
+    * 1. set the target to cpu0 in the ICDIPTRn register
+    * 2. enable the interrupt in the ICDISERn register */
+    /* CONFIG_INTERRUPT (int_ID (R0), CPU_target (R1)); */
+    /* NOTE: you can configure different interrupts
+    by passing their IDs to R0 and repeating the next 3 lines */
+    MOV R0, #79            // KEY port (Interrupt ID = 79)
     MOV R1, #1             // this field is a bit-mask; bit 0 targets cpu0
     BL CONFIG_INTERRUPT
 
-/* configure the GIC CPU Interface */
+    /* configure the GIC CPU Interface */
     LDR R0, =0xFFFEC100    // base address of CPU Interface
-/* Set Interrupt Priority Mask Register (ICCPMR) */
+    /* Set Interrupt Priority Mask Register (ICCPMR) */
     LDR R1, =0xFFFF        // enable interrupts of all priorities levels
     STR R1, [R0, #0x04]
-/* Set the enable bit in the CPU Interface Control Register (ICCICR).
-* This allows interrupts to be forwarded to the CPU(s) */
+    /* Set the enable bit in the CPU Interface Control Register (ICCICR).
+    * This allows interrupts to be forwarded to the CPU(s) */
     MOV R1, #1
     STR R1, [R0]
-/* Set the enable bit in the Distributor Control Register (ICDDCR).
-* This enables forwarding of interrupts to the CPU Interface(s) */
+    /* Set the enable bit in the Distributor Control Register (ICDDCR).
+    * This enables forwarding of interrupts to the CPU Interface(s) */
     LDR R0, =0xFFFED000
     STR R1, [R0]
     POP {PC}
@@ -497,9 +819,9 @@ CONFIG_GIC:
 */
 CONFIG_INTERRUPT:
     PUSH {R4-R5, LR}
-/* Configure Interrupt Set-Enable Registers (ICDISERn).
-* reg_offset = (integer_div(N / 32) * 4
-* value = 1 << (N mod 32) */
+    /* Configure Interrupt Set-Enable Registers (ICDISERn).
+    * reg_offset = (integer_div(N / 32) * 4
+    * value = 1 << (N mod 32) */
     LSR R4, R0, #3    // calculate reg_offset
     BIC R4, R4, #3    // R4 = reg_offset
     LDR R2, =0xFFFED100
@@ -507,24 +829,40 @@ CONFIG_INTERRUPT:
     AND R2, R0, #0x1F // N mod 32
     MOV R5, #1        // enable
     LSL R2, R5, R2    // R2 = value
-/* Using the register address in R4 and the value in R2 set the
-* correct bit in the GIC register */
+    /* Using the register address in R4 and the value in R2 set the
+    * correct bit in the GIC register */
     LDR R3, [R4]      // read current register value
     ORR R3, R3, R2    // set the enable bit
     STR R3, [R4]      // store the new register value
-/* Configure Interrupt Processor Targets Register (ICDIPTRn)
-* reg_offset = integer_div(N / 4) * 4
-* index = N mod 4 */
+    /* Configure Interrupt Processor Targets Register (ICDIPTRn)
+    * reg_offset = integer_div(N / 4) * 4
+    * index = N mod 4 */
     BIC R4, R0, #3    // R4 = reg_offset
     LDR R2, =0xFFFED800
     ADD R4, R2, R4    // R4 = word address of ICDIPTR
     AND R2, R0, #0x3  // N mod 4
     ADD R4, R2, R4    // R4 = byte address in ICDIPTR
-/* Using register address in R4 and the value in R2 write to
-* (only) the appropriate byte */
+    /* Using register address in R4 and the value in R2 write to
+    * (only) the appropriate byte */
     STRB R1, [R4]
     POP {R4-R5, PC}
 
 // This subroutine is the interrupt service routine for the PS/2 keyboard
 PS2_ISR:
-    
+    PUSH {V1-V2, LR}
+    LDR V1, =DATA // Load address of DATA variable
+
+    clear_kbd_data_reg:
+        BL read_PS2_data_ASM // Check RVALID bit (returned in A1)
+        CMP A1, #0 // Check if RVALID = 0
+        BEQ PS2_ISR_end // Exit once data register is empty
+		LDRB A2, [V1] // Load data variable into A2
+		CMP A2, #0xf0 // Check if we are dealing with a break signal
+		MOVEQ V2, #1 // If so, raise flag in V2
+        B clear_kbd_data_reg // Keep looping until data register of PS/2 is empty
+
+    PS2_ISR_end:
+		CMP V2, #1 // Check if break signal flag has been raised
+		MOVEQ A1, #0 // If so, move 0 into A1 to clear DATA variable
+		STREQB A1, [V1] // Store 0 to DATA variable in memory
+        POP {V1-V2, PC} 
