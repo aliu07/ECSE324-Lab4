@@ -63,8 +63,7 @@ SERVICE_FIQ:
 .equ CHAR_BUFFER, 0xC9000000 // Chracter buffer base address
 .equ KBD_REGISTER, 0xFF200100 // PS/2 data register address
 
-DATA: .byte 0 // Current keyboard data set to 0 initially. It will hold the make signal of the most recently pressed key.
-      .space 3
+DATA: .word 0 // Current keyboard data set to 0 initially. It will hold the make signal of the most recently pressed key.
 CURSOR_POS: .byte 0, 0 // Current cursor position (x, y) -> First byte is x position, second is y position
             .space 2
 
@@ -80,6 +79,21 @@ GoLBoard:
 	.byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0 // 7
 	.byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0 // 8
 	.byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0 // 9
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // a
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // b
+
+GoLNumOfNeighbors:
+    //  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 0
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 1
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 2
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 3
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 4
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 5
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 6
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 7
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 8
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 9
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // a
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // b
 
@@ -109,23 +123,18 @@ _start:
     MOV A2, #1
     STR A2, [A1, #4] // Enable interrupts for the keyboard
 
-    // SETUP BOARD
+    // CLEAR PIXEL BUFFER
     BL VGA_clear_pixelbuff_ASM
     
+    // DRAW GRID LINES
     MOV A1, #0xff
     LSL A1, #8
     ADD A1, A1, #0xff
     BL GoL_draw_grid_ASM
 
+    // DRAW INITIAL STATE OF THE BOARD
     MOV A1, #0xff
     BL GoL_draw_board_ASM
-
-    MOV A1, #0
-    MOV A2, #0
-    MOV A3, #0xff
-    LSL A3, #8
-    ADD A3, A3, #0xff
-    BL GoL_draw_cursorxy_ASM
 
     // SETUP CURSOR
     LDR A1, =CURSOR_POS
@@ -133,8 +142,16 @@ _start:
     STRB A2, [A1]
     STRB A2, [A1, #1]
 
+    // DRAW CURSOR
+    MOV A1, #0
+    MOV A2, #0
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff
+    BL GoL_draw_cursorxy_ASM
+
 IDLE:
-    // POLL DATA VAR
+    // POLL DATA VARIABLE
     LDR V1, =DATA // Load address of DATA variable
     LDR A1, [V1] // Load variable contents into A1
     CMP A1, #0x1D // W key press
@@ -179,7 +196,7 @@ move_cursor_up:
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
    	MOV A1, #0x0
-    STRB A1, [V1]
+    STR A1, [V1]
 	B IDLE
 
 move_cursor_down:
@@ -211,7 +228,7 @@ move_cursor_down:
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
    	MOV A1, #0x0
-    STRB A1, [V1]
+    STR A1, [V1]
 	B IDLE
 
 move_cursor_left:
@@ -243,7 +260,7 @@ move_cursor_left:
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
    	MOV A1, #0x0
-    STRB A1, [V1]
+    STR A1, [V1]
 	B IDLE
 
 move_cursor_right:
@@ -275,10 +292,39 @@ move_cursor_right:
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
    	MOV A1, #0x0
-    STRB A1, [V1]
+    STR A1, [V1]
 	B IDLE
 
 toggle_state_at_cursor_pos:
+    LDR V1, =CURSOR_POS // Load address of cursor position into V1
+    LDR V2, =GoLBoard // Get game board base address in V2
+    LDRB A1, [V1] // Load x into A1
+    LDRB A2, [V1, #1] // Load y into A2
+    LSL A2, #4 // Multiply y by 16 to get proper row offset
+    ADD A1, A2, A1 // Add in x offset
+    LDRB A3, [V2, A1] // Get cell (x, y)'s state
+    EOR A3, #1 // XOR with 1 to get complementary
+    STRB A3, [V2, A1] // Store new state into memory
+    // UPDATE CELL AT POSITION X, Y
+    LDR V1, =CURSOR_POS // Load address of cursor position
+    LDRB A1, [V1] // Load x into A1
+    LDRB A2, [V1, #1] // Load y into A2
+    CMP A3, #1 // Check if current cell is 1
+    MOVEQ A3, #0xff // Move colour blue if state is 1
+    MOVNE A3, #0x0 // Else, move colour black if state is 0
+    BL GoL_fill_gridxy_ASM // Fill the grid with the appropriate colour
+    // DRAW CURSOR
+    LDRB A1, [V1] // Load x into A1
+    LDRB A2, [V1, #1] // Load y into A2
+    MOV A3, #0xff
+    LSL A3, #8
+    ADD A3, A3, #0xff // Instantitate white colour
+    BL GoL_draw_cursorxy_ASM // Draw the cursor over updated cell
+    // CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
+   	LDR V1, =DATA
+   	MOV A1, #0x0
+    STR A1, [V1]
+    B IDLE
 
 update_GoL_board:
 
@@ -437,9 +483,12 @@ GoL_draw_board_ASM:
         ADD A4, A4, V2 // Add column offset to get proper column
         LDRB V4, [V3, A4] // Load value of game board at (x, y)
         CMP V4, #1 // Check if value is 1
-        MOVEQ A1, V2 // Move column index (x) into A1 if value is 1
-        MOVEQ A2, V1 // Move row index (y) into A2 if value is 1
-        BLEQ GoL_fill_gridxy_ASM // Fill grid cell at (x, y) if value is 1
+        MOV A1, V2 // Move column index (x) into A1 if value is 1
+        MOV A2, V1 // Move row index (y) into A2 if value is 1
+        LSLNE A3, #16 // Shift up 16 to leave lower 16 bits as 0 (and hence colour the cell black) if vaue is 0
+        BL GoL_fill_gridxy_ASM // Fill grid cell at (x, y) if value is 1
+        CMP V4, #1 // Check if value is 1 to re-update CPSR
+        LSRNE A3, #16 // Shift colour back down 16
         ADD V2, V2, #1 // Increment column index
         B for_each_column // Branch to next iteration
 
@@ -448,14 +497,6 @@ GoL_draw_board_ASM:
         B for_each_row // Branch to next iteration
 
     GoL_draw_board_ASM_end:
-        // DRAW CURSOR
-        LDR V1, =CURSOR_POS
-        LDRB A1, [V1]
-        LDRB A2, [V1, #1]
-        MOV A3, #0xff
-        LSL A3, #8
-        ADD A3, A3, #0xff
-        BL GoL_draw_cursorxy_ASM
         POP {V1-V4, PC}
 
 // This subroutine fills the area of grid location (x, y) with colour c.
@@ -773,7 +814,7 @@ read_PS2_data_ASM:
     AND A1, V2, #0x1 // Return MSB read i.e. RVALID bit in A1
     LDR V4, =DATA // Load address of DATA variable in memory
     AND V3, V3, #0xff // Keep only last 8 bits (data content)
-    STRB V3, [V4] // Store into memory
+    STR V3, [V4] // Store into memory
     POP {V1-V4, PC}
 
 
@@ -851,18 +892,27 @@ CONFIG_INTERRUPT:
 PS2_ISR:
     PUSH {V1-V2, LR}
     LDR V1, =DATA // Load address of DATA variable
+    MOV A2, #0 // Clear A2
+    MOV V2, #0x80 // Delay counterset to 128
+
+    // This delay loop is a rudimentary solution to a problem. The break signal's byte are sent with a silght delay. However,
+    // considering the CPU's blazing frequency, the second byte of the break signal is often not capted. Therefore, we just
+    // implement a delay loop to give the keyboard's data register some time to update.
+    delay_loop:
+        CMP V2, #0
+        BEQ clear_kbd_data_reg
+        SUB V2, V2, #1
+        B delay_loop
 
     clear_kbd_data_reg:
         BL read_PS2_data_ASM // Check RVALID bit (returned in A1)
         CMP A1, #0 // Check if RVALID = 0
         BEQ PS2_ISR_end // Exit once data register is empty
-		LDRB A2, [V1] // Load data variable into A2
-		CMP A2, #0xf0 // Check if we are dealing with a break signal
-		MOVEQ V2, #1 // If so, raise flag in V2
+		LDR A3, [V1] // Load data variable into A3
+        LSL A2, #8 // Shift up by a byte
+        ORR A2, A2, A3 // Add DATA byte
         B clear_kbd_data_reg // Keep looping until data register of PS/2 is empty
 
     PS2_ISR_end:
-		CMP V2, #1 // Check if break signal flag has been raised
-		MOVEQ A1, #0 // If so, move 0 into A1 to clear DATA variable
-		STREQB A1, [V1] // Store 0 to DATA variable in memory
-        POP {V1-V2, PC} 
+		STR A2, [V1] // Store all keyboard signals in FIFO into memory
+        POP {V1-V2, PC}
