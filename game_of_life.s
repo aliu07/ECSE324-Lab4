@@ -67,8 +67,10 @@ DATA: .word 0 // Current keyboard data set to 0 initially. It will hold the make
 CURSOR_POS: .byte 0, 0 // Current cursor position (x, y) -> First byte is x position, second is y position
             .space 2
 
-GoLBoard:
-	//  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
+// GoLBoardInitialState is the initial state of the game board we want to start at. Every time the user restarts the game,
+// it will be set to the state of GoLBoardInitialState
+GoLBoardInitialState:
+    //  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 0
 	.byte 0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 // 1
 	.byte 0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0 // 2
@@ -82,7 +84,23 @@ GoLBoard:
 	.byte 0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,0 // a
 	.byte 0,0,1,1,1,0,1,1,1,0,0,0,1,0,0,0 // b
 
-// GoalBoardMirror mirrors the GoLBoard, but each of its cells holds the number of active neighbors it has.
+// GoLBoard holds the current state of the game of life board -> 1 = cell is active, 0 = cell is inactive
+GoLBoard:
+	//  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 0
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 1
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 2
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 3
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 4
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 5
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 6
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 7
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 8
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 9
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // a
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // b
+
+// GoLBoardMirror mirrors the GoLBoard, but each of its cells holds the number of active neighbors it has.
 GoLBoardMirror:
     //  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 0
@@ -119,6 +137,29 @@ _start:
     MOV R0, #0b01010011      // IRQ unmasked, MODE = SVC
     MSR CPSR_c, R0
     
+    // UPDATE GoLBoard's state to GoLBoardInitialState's state
+    MOV A1, #0 // Instantiate y index
+    LDR V1, =GoLBoardInitialState
+    LDR V2, =GoLBoard
+
+    row_setup_loop:
+        MOV A2, #0 // Instantiate x index
+
+    col_setup_loop:
+        MOV A3, A1 // Move y index into A3 (use A3 to hold offset)
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A2 // Add in x offset
+        LDRB A4, [V1, A3] // Load in initial state of cell into A4
+        STRB A4, [V2, A3] // Store that initial state into current state of game board
+        ADD A2, A2, #1 // Increment x index
+        CMP A2, #16 // Check if x = 16 (break if so)
+        BNE col_setup_loop // If not, then keep going
+
+    row_setup_loop_end:
+        ADD A1, A1, #1 // Increment y index
+        CMP A1, #12 // Check if y = 12 (break if so)
+        BNE row_setup_loop // If not, then keep looping
+
     // ENABLING INTERRUPTS FOR KEYBOARD
     LDR A1, =KBD_REGISTER // Load keyboard register address
     MOV A2, #1
@@ -133,23 +174,15 @@ _start:
     ADD A1, A1, #0xff
     BL GoL_draw_grid_ASM
 
-    // DRAW INITIAL STATE OF THE BOARD
-    MOV A1, #0xff
-    BL GoL_draw_board_ASM
-
-    // SETUP CURSOR
+    // SETUP CURSOR POSITION
     LDR A1, =CURSOR_POS
     MOV A2, #0
     STRB A2, [A1]
     STRB A2, [A1, #1]
 
-    // DRAW CURSOR
-    MOV A1, #0
-    MOV A2, #0
-    MOV A3, #0xff
-    LSL A3, #8
-    ADD A3, A3, #0xff
-    BL GoL_draw_cursorxy_ASM
+    // FILL IN GRID CELLS
+    MOV A1, #0xff // Colour blue
+    BL GoL_draw_board_ASM
 
     // UPDATE GoLBoardMirror
     BL update_GoL_mirror
@@ -731,6 +764,23 @@ GoL_draw_board_ASM:
         BL GoL_fill_gridxy_ASM // Fill grid cell at (x, y) if value is 1
         CMP V4, #1 // Check if value is 1 to re-update CPSR
         LSRNE A3, #16 // Shift colour back down 16
+
+        // CHECK IF CURRENT (X, Y) EQUALS CURSOR'S POSITION
+        LDR A4, =CURSOR_POS // Load cursor position address into A4
+        LDRH A1, [A4] // Load half-word content into A1 -> (x, y) = 2 bytes
+        MOV A2, V1 // Move row index into A2
+        LSL A2, #8 // Shift up by one byte
+        ADD A2, A2, V2 // Add in column index
+        CMP A1, A2 // Check if current (x, y) is equal to cursor position
+        MOV A1, V2 // Move col index into A1
+        MOV A2, V1 // Move row index into A2
+        PUSH {A3}
+        MOV A3, #0xff
+        LSL A3, #8
+        ADD A3, A3, #0xff // Instantiate white colour
+        BLEQ GoL_draw_cursorxy_ASM
+        POP {A3}
+
         ADD V2, V2, #1 // Increment column index
         B for_each_column // Branch to next iteration
 
