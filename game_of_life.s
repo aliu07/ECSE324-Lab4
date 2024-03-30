@@ -70,19 +70,20 @@ CURSOR_POS: .byte 0, 0 // Current cursor position (x, y) -> First byte is x posi
 GoLBoard:
 	//  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 0
-	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 1
-	.byte 0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0 // 2
-	.byte 0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0 // 3
-	.byte 0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0 // 4
-	.byte 0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0 // 5
-	.byte 0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0 // 6
-	.byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0 // 7
-	.byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0 // 8
-	.byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0 // 9
-	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // a
-	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // b
+	.byte 0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 // 1
+	.byte 0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0 // 2
+	.byte 0,1,1,0,0,1,0,0,0,1,1,1,0,1,1,0 // 3
+	.byte 0,1,0,0,0,1,0,0,0,0,0,1,0,1,0,0 // 4
+	.byte 0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 // 5
+	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 6
+	.byte 0,0,1,1,1,0,1,1,1,0,1,0,1,0,0,0 // 7
+	.byte 0,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0 // 8
+	.byte 0,0,0,1,0,0,0,1,0,0,1,1,1,0,0,0 // 9
+	.byte 0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,0 // a
+	.byte 0,0,1,1,1,0,1,1,1,0,0,0,1,0,0,0 // b
 
-GoLNumOfNeighbors:
+// GoalBoardMirror mirrors the GoLBoard, but each of its cells holds the number of active neighbors it has.
+GoLBoardMirror:
     //  x 0 1 2 3 4 5 6 7 8 9 a b c d e f    y
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 0
 	.byte 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 // 1
@@ -150,6 +151,9 @@ _start:
     ADD A3, A3, #0xff
     BL GoL_draw_cursorxy_ASM
 
+    // UPDATE GoLBoardMirror
+    BL update_GoL_mirror
+
 IDLE:
     // POLL DATA VARIABLE
     LDR V1, =DATA // Load address of DATA variable
@@ -163,8 +167,9 @@ IDLE:
     CMP A1, #0x23 // D key press
     BEQ move_cursor_right
     CMP A1, #0x29 // Spacebar key press
-    BEQ toggle_state_at_cursor_pos // Change to poll release first
+    BEQ toggle_state_at_cursor_pos
     CMP A1, #0x31 // N key press
+    BEQ update_GoL_board
     B IDLE // Continue polling
 
 move_cursor_up:
@@ -320,6 +325,7 @@ toggle_state_at_cursor_pos:
     LSL A3, #8
     ADD A3, A3, #0xff // Instantitate white colour
     BL GoL_draw_cursorxy_ASM // Draw the cursor over updated cell
+    BL update_GoL_mirror // Update board mirror
     // CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
    	MOV A1, #0x0
@@ -327,12 +333,248 @@ toggle_state_at_cursor_pos:
     B IDLE
 
 update_GoL_board:
+    MOV V1, #0 // Instantiate y index
+    LDR V3, =GoLBoard
+    LDR V4, =GoLBoardMirror
+
+    for_each_row_in_board:
+        CMP V1, #12 // Check y = 12 (termination condition)
+        BEQ update_GoL_board_end
+        MOV V2, #0 // Instantiate x index
+
+    for_each_col_in_board:
+        CMP V2, #16 // Check x = 16 (termination condition)
+        BEQ for_each_row_in_board_end
+
+        MOV A1, V1 // Move y index into A1 (use to hold offset)
+        LSL A1, #4 // Multiply by 16
+        ADD A1, A1, V2 // Add in x offset
+        LDRB A2, [V3, A1] // Load cell value of game board
+        CMP A2, #1 // Check if cell value is active in game board
+        BEQ check_active_cell_condtions
+        BNE check_inactive_cell_conditions
+    
+    check_active_cell_condtions:
+        MOV A2, #1 // Originally, set status of cell to be active
+        LDRB A3, [V4, A1] // Load cell value of game board mirror
+        CMP A3, #1 // Check if cell value in game board mirror is less than or equal to 1
+        MOVLE A2, #0 // If so, cell becomes inactive
+        CMP A3, #4 // Check if cell value in game board mirror is greater or equal to 4
+        MOVGE A2, #0 // If so, cell value becomes inactive
+        MOV A1, V1 // Move y index into A1 (use to hold offset)
+        LSL A1, #4 // Multiply by 16
+        ADD A1, A1, V2 // Add in x offset
+        STRB A2, [V3, A1] // Store new status of cell into memory
+        B for_each_col_in_board_end 
+
+    check_inactive_cell_conditions:
+        MOV A2, #0 // Originally, set status of cell to be inactive
+        LDRB A3, [V4, A1] // Load cell value of game board mirror
+        CMP A3, #3 // Check if inactive cell has exactly 3 active neighbours
+        MOVEQ A2, #1 // If so, cell value becomes active
+        MOV A1, V1 // Move y index into A1 (use to hold offset)
+        LSL A1, #4 // Multiply by 16
+        ADD A1, A1, V2 // Add in x offset
+        STRB A2, [V3, A1] // Store new status of cell into memory
+        B for_each_col_in_board_end 
+
+    for_each_col_in_board_end:
+        ADD V2, V2, #1 // Increment index
+        B for_each_col_in_board
+
+    for_each_row_in_board_end:
+        ADD V1, V1, #1 // Increment y index
+        B for_each_row_in_board
+
+    update_GoL_board_end:
+        MOV A1, #0xff
+        BL GoL_draw_board_ASM // Update displayed board
+        LDR V1, =CURSOR_POS
+        LDRB A1, [V1] // Load cursor x into A1
+        LDRB A2, [V1, #1] // Load cursor y into A2
+        MOV A3, #0xff
+        LSL A3, #8
+        ADD A3, A3, #0xff // Instantiate white colour
+        BL GoL_draw_cursorxy_ASM // Draw cursor
+        BL update_GoL_mirror // Update the mirror of the board as well
+        // CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
+   	    LDR V1, =DATA
+   	    MOV A1, #0x0
+        STR A1, [V1]
+        B IDLE
 
 
 
 
 
 /*---------- GoL DRIVERS ----------*/
+
+// This subroutine passes over the GoL board and updates the number of active neighbours for every cell.
+update_GoL_mirror:
+    PUSH {V1-V3, LR}
+    MOV V1, #0 // Instantiate y index
+    LDR V3, =GoLBoardMirror
+    
+    for_each_row_in_mirror:
+        CMP V1, #12 // Check y = 12 (termination condition)
+        BEQ update_GoL_mirror_end
+        MOV V2, #0 // Instantiate x index
+
+    for_each_col_in_mirror:
+        CMP V2, #16 // Check x = 16 (termination condition)
+        BEQ for_each_row_in_mirror_end
+        MOV A1, V2 // Move x into A1
+        MOV A2, V1 // Move y into A2
+        BL find_num_of_neighboursxy // Find number of neighbours of current cell (returned in A1)
+        MOV A2, V1 // Move y into A2 (use A2 as register to hold offset)
+        LSL A2, #4 // Multiply by 16
+        ADD A2, A2, V2 // Add in x offset
+        STRB A1, [V3, A2] // Store number of neighbours into mirror map
+        ADD V2, V2, #1 // Increment x index
+        B for_each_col_in_mirror
+
+    for_each_row_in_mirror_end:
+        ADD V1, V1, #1 // Increment y index
+        B for_each_row_in_mirror
+
+    update_GoL_mirror_end:
+        POP {V1-V3, PC}
+
+// This subroutine returns the number of active neighbours given an (x, y) coordinate.
+// Note: 0 <= x < 16, 0 <= y < 12
+// INPUT: A1 -> x, A2 -> y
+// OUTPUT: A1 -> number of active neighbours of (x, y)
+find_num_of_neighboursxy:
+    PUSH {V1-V3, LR}
+    // INPUT VALIDATION
+    CMP A1, #0
+    BLT find_num_of_neighboursxy_end // Exit if x < 0
+    CMP A1, #16
+    BGE find_num_of_neighboursxy_end // Exit if x >= 16
+    CMP A2, #0
+    BLT find_num_of_neighboursxy_end // Exit if y < 0
+    CMP A2, #12
+    BGE find_num_of_neighboursxy_end // Exit if y >= 12
+    // SUBROUTINE LOGIC
+    LDR V1, =GoLBoard
+    LDR V2, =GoLBoardMirror
+    MOV V3, #0 // Instantiate result to 0
+    
+    check_top_left: // Check coordinate (x-1, y-1)
+        CMP A1, #0 // Check if x = 0
+        BEQ check_top // If it is, then skip since col out of bounds
+        CMP A2, #0 // Check if y = 0
+        BEQ check_top // If it is, then skip since col out of bounds
+        SUB A1, A1, #1 // x = x-1
+        SUB A2, A2, #1 // y = y-1
+        MOV A3, A2 // Move y into A3 -> it holds offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x-1, y-1) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        ADD A1, A1, #1 // x-1 = x
+        ADD A2, A2, #1 // y-1 = y
+
+    check_top: // Check coordinate (x, y-1)
+        CMP A2, #0 // Check if y = 0
+        BEQ check_top_right // If it is, then skip since row out of bounds
+        SUB A2, A2, #1 // y = y+1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x, y-1) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        ADD A2, A2, #1 // y-1 = y
+
+    check_top_right: // Check coordinate (x+1, y-1)
+        CMP A1, #15 // Check if x = 15
+        BEQ check_left // If it is, then skip since col out of bounds
+        CMP A2, #0 // Check if y = 0
+        BEQ check_left // If it is, then skip since row out of bounds
+        ADD A1, A1, #1 // x = x+1
+        SUB A2, A2, #1 // y = y-1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x+1, y-1) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        SUB A1, A1, #1 // x+1 = x
+        ADD A2, A2, #1 // y-1 = y
+
+    check_left: // Check coordinate (x-1, y)
+        CMP A1, #0 // Check if x = 0
+        BEQ check_right // If it is, then skip since col out of bounds
+        SUB A1, A1, #1 // x = x-1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x-1, y) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        ADD A1, A1, #1 // x-1 = x
+
+    check_right: // Check coordinate (x+1, y)
+        CMP A1, #15 // Check if x = 15
+        BEQ check_bottom_left // If it is, then skip since col out of bounds
+        ADD A1, A1, #1 // x = x+1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x+1, y) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        SUB A1, A1, #1 // x+1 = x
+
+    check_bottom_left: // Check coordinate (x-1, y+1)
+        CMP A1, #0 // Check if x = 0
+        BEQ check_bottom // If it is, then skip since col out of bounds
+        CMP A2, #11 // Check if y = 11
+        BEQ check_bottom // If it is, then skip since row out of bounds
+        SUB A1, A1, #1 // x = x-1
+        ADD A2, A2, #1 // y = y+1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x-1, y+1) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        ADD A1, A1, #1 // x-1 = x
+        SUB A2, A2, #1 // y+1 = y
+
+    check_bottom: // Check coordinate (x, y+1)
+        CMP A2, #11 // Check if y = 11
+        BEQ check_bottom_right // If it is, then skip since row out of bounds
+        ADD A2, A2, #1 // y = y+1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x, y+1) = 1
+        ADDEQ V3, V3, #1 // If it is, then increment result by 1
+        SUB A2, A2, #1 // y+1 = y
+
+    check_bottom_right: // Check coordinate (x+1, y+1)
+        CMP A1, #15 // Check if x = 15
+        BEQ find_num_of_neighboursxy_end // If it is, then skip since col out of bounds
+        CMP A2, #11 // Check if y = 11
+        BEQ find_num_of_neighboursxy_end // If it is, then skip since row out of bounds
+        ADD A1, A1, #1 // x = x+1
+        ADD A2, A2, #1 // y = y+1
+        MOV A3, A2 // Move y into A3 -> hold offset
+        LSL A3, #4 // Multiply by 16
+        ADD A3, A3, A1 // Add in x offset
+        LDRB A4, [V1, A3] // Load board cell value
+        CMP A4, #1 // Check if (x+1, y+1) = 1
+        ADDEQ V3, V3, #1 // IF it is, then increment result by 1
+        SUB A1, A1, #1 // x+1 = x
+        SUB A2, A2, #1 // y+1 = y
+
+    find_num_of_neighboursxy_end:
+        MOV A1, V3 // Move result into A1
+        POP {V1-V3, PC}
 
 // This subroutine draws a cursor at location (x, y), 0 <= x < 16, 0 <= y < 12 with colour c
 // INPUTS: A1 -> x, A2 -> y, A3 -> Colour c
