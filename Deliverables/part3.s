@@ -37,14 +37,14 @@ SERVICE_IRQ:
     on page 46 */
 
 Keyboard_check:
-    CMP R5, #79 // Check if ID of interrupt raiser is PS/2's
+    CMP R5, #79         // Check if ID of interrupt raiser is PS/2's
 
 UNEXPECTED:
     BNE UNEXPECTED      // if not recognized, stop here
     BL PS2_ISR
 
 EXIT_IRQ:
-/* Write to the End of Interrupt Register (ICCEOIR) */
+    /* Write to the End of Interrupt Register (ICCEOIR) */
     STR R5, [R4, #0x10] // write to ICCEOIR
     POP {R0-R7, LR}
     SUBS PC, LR, #4
@@ -60,7 +60,7 @@ SERVICE_FIQ:
 .global _start
 
 .equ PIXEL_BUFFER, 0xC8000000 // Pixel buffer base address
-.equ CHAR_BUFFER, 0xC9000000 // Chracter buffer base address
+.equ CHAR_BUFFER, 0xC9000000  // Chracter buffer base address
 .equ KBD_REGISTER, 0xFF200100 // PS/2 data register address
 
 DATA: .word 0 // Current keyboard data set to 0 initially. It will hold the make signal of the most recently pressed key.
@@ -138,32 +138,32 @@ _start:
     MSR CPSR_c, R0
     
     // UPDATE GoLBoard's state to GoLBoardInitialState's state
-    MOV A1, #0 // Instantiate y index
+    MOV A1, #0             // Instantiate y index
     LDR V1, =GoLBoardInitialState
     LDR V2, =GoLBoard
 
     row_setup_loop:
-        MOV A2, #0 // Instantiate x index
+        MOV A2, #0         // Instantiate x index
 
     col_setup_loop:
-        MOV A3, A1 // Move y index into A3 (use A3 to hold offset)
-        LSL A3, #4 // Multiply by 16
-        ADD A3, A3, A2 // Add in x offset
-        LDRB A4, [V1, A3] // Load in initial state of cell into A4
-        STRB A4, [V2, A3] // Store that initial state into current state of game board
-        ADD A2, A2, #1 // Increment x index
-        CMP A2, #16 // Check if x = 16 (break if so)
+        MOV A3, A1         // Move y index into A3 (use A3 to hold offset)
+        LSL A3, #4         // Multiply by 16 to compute y offset
+        ADD A3, A3, A2     // Add in x offset
+        LDRB A4, [V1, A3]  // Load in initial state of cell into A4
+        STRB A4, [V2, A3]  // Store that initial state into current state of game board
+        ADD A2, A2, #1     // Increment x index
+        CMP A2, #16        // Check if x = 16 (break if so)
         BNE col_setup_loop // If not, then keep going
 
     row_setup_loop_end:
-        ADD A1, A1, #1 // Increment y index
-        CMP A1, #12 // Check if y = 12 (break if so)
+        ADD A1, A1, #1     // Increment y index
+        CMP A1, #12        // Check if y = 12 (break if so)
         BNE row_setup_loop // If not, then keep looping
 
     // ENABLING INTERRUPTS FOR KEYBOARD
-    LDR A1, =KBD_REGISTER // Load keyboard register address
+    LDR A1, =KBD_REGISTER  // Load keyboard register address
     MOV A2, #1
-    STR A2, [A1, #4] // Enable interrupts for the keyboard
+    STR A2, [A1, #4]       // Enable interrupts for the keyboard
 
     // CLEAR PIXEL BUFFER
     BL VGA_clear_pixelbuff_ASM
@@ -171,7 +171,7 @@ _start:
     // DRAW GRID LINES
     MOV A1, #0xff
     LSL A1, #8
-    ADD A1, A1, #0xff
+    ADD A1, A1, #0xff      // Instantiate white colour
     BL GoL_draw_grid_ASM
 
     // SETUP CURSOR POSITION
@@ -181,7 +181,7 @@ _start:
     STRB A2, [A1, #1]
 
     // FILL IN GRID CELLS
-    MOV A1, #0xff // Colour blue
+    MOV A1, #0xff          // Colour blue
     BL GoL_draw_board_ASM
 
     // UPDATE GoLBoardMirror
@@ -189,250 +189,250 @@ _start:
 
 IDLE:
     // POLL DATA VARIABLE
-    LDR V1, =DATA // Load address of DATA variable
-    LDR A1, [V1] // Load variable contents into A1
-    CMP A1, #0x1D // W key press
+    LDR V1, =DATA         // Load address of DATA variable
+    LDR A1, [V1]          // Load variable contents into A1
+    CMP A1, #0x1D         // W key press
     BEQ move_cursor_up
-    CMP A1, #0x1C // A key press
+    CMP A1, #0x1C         // A key press
     BEQ move_cursor_left
-    CMP A1, #0x1B // S key press
+    CMP A1, #0x1B         // S key press
     BEQ move_cursor_down
-    CMP A1, #0x23 // D key press
+    CMP A1, #0x23         // D key press
     BEQ move_cursor_right
-    CMP A1, #0x29 // Spacebar key press
-    BEQ toggle_state_at_cursor_pos
-    CMP A1, #0x31 // N key press
+    CMP A1, #0x29         // Spacebar key press
+    BEQ toggle_state
+    CMP A1, #0x31         // N key press
     BEQ update_GoL_board
-    B IDLE // Continue polling
+    B IDLE                // Continue polling
 
 move_cursor_up:
-    LDR V1, =CURSOR_POS // Load address of cursor position
-    LDRB A2, [V1, #1] // Get 2nd byte -> y position
-    LDRB A1, [V1] // Get 1ast byte -> x position
-    LDR V2, =GoLBoard // Load address of game board
-    MOV V3, A2 // Move y into V3
-    LSL V3, #4 // Compute y offset (multiply by 16)
-    ADD V3, V3, A1 // Add x offset
-    LDRB V4, [V2, V3] // Get byte at base address + offset
-    CMP V4, #1 // Check if state of cell at (x, y) is on
-    MOVEQ A3, #0xff // Move blue into A3 for colour if so
-    MOVNE A3, #0x0 // Else move black into A3
-    SUB V3, V3, A1 // Subtract x offset
-    LSR V3, #4 // Divide by 16 to get original y
-    MOV V4, A1 // Move x into V4
-    BL GoL_fill_gridxy_ASM // Clear cursor in current position
-    CMP V3, #0 // Check if y is at 0
-    SUBNE V3, V3, #1 // Decrement by 1 if y != 0
-    STRB V3, [V1, #1] // Store new y position into memory
+    LDR V1, =CURSOR_POS      // Load address of cursor position
+    LDRB A2, [V1, #1]        // Get 2nd byte -> y position
+    LDRB A1, [V1]            // Get 1ast byte -> x position
+    LDR V2, =GoLBoard        // Load address of game board
+    MOV V3, A2               // Move y into V3
+    LSL V3, #4               // Compute y offset (multiply by 16)
+    ADD V3, V3, A1           // Add x offset
+    LDRB V4, [V2, V3]        // Get byte at base address + offset
+    CMP V4, #1               // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff          // Move blue into A3 for colour if so
+    MOVNE A3, #0x0           // Else move black into A3
+    SUB V3, V3, A1           // Subtract x offset
+    LSR V3, #4               // Divide by 16 to get original y
+    MOV V4, A1               // Move x into V4
+    BL GoL_fill_gridxy_ASM   // Clear cursor in current position
+    CMP V3, #0               // Check if y is at 0
+    SUBNE V3, V3, #1         // Decrement by 1 if y != 0
+    STRB V3, [V1, #1]        // Store new y position into memory
     // DRAW CURSOR
-    MOV A1, V4 // Move x into A1
-    MOV A2, V3 // Move y into A2
+    MOV A1, V4               // Move x into A1
+    MOV A2, V3               // Move y into A2
     MOV A3, #0xff
     LSL A3, #8
-    ADD A3, A3, #0xff // Instantiate white color
+    ADD A3, A3, #0xff        // Instantiate white color
     BL GoL_draw_cursorxy_ASM // Draw cursor
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
-   	MOV A1, #0x0
+   	MOV A1, #0x0             // Write 0 to data location in memory
     STR A1, [V1]
 	B IDLE
 
 move_cursor_down:
-    LDR V1, =CURSOR_POS // Load address of cursor position
-    LDRB A2, [V1, #1] // Get 2nd byte -> y position
-    LDRB A1, [V1] // Get 1ast byte -> x position
-    LDR V2, =GoLBoard // Load address of game board
-    MOV V3, A2 // Move y into V3
-    LSL V3, #4 // Compute y offset (multiply by 16)
-    ADD V3, V3, A1 // Add x offset
-    LDRB V4, [V2, V3] // Get byte at base address + offset
-    CMP V4, #1 // Check if state of cell at (x, y) is on
-    MOVEQ A3, #0xff // Move blue into A3 for colour if so
-    MOVNE A3, #0x0 // Else move black into A3
-    SUB V3, V3, A1 // Subtract x offset
-    LSR V3, #4 // Divide by 16 to get original y
-    MOV V4, A1 // Move x into V4
-    BL GoL_fill_gridxy_ASM // Clear cursor in current position
-    CMP V3, #11 // Check if y is at 11
-    ADDNE V3, V3, #1 // Increment by 1 if y != 0
-    STRB V3, [V1, #1] // Store new y position into memory
+    LDR V1, =CURSOR_POS      // Load address of cursor position
+    LDRB A2, [V1, #1]        // Get 2nd byte -> y position
+    LDRB A1, [V1]            // Get 1ast byte -> x position
+    LDR V2, =GoLBoard        // Load address of game board
+    MOV V3, A2               // Move y into V3
+    LSL V3, #4               // Compute y offset (multiply by 16)
+    ADD V3, V3, A1           // Add x offset
+    LDRB V4, [V2, V3]        // Get byte at base address + offset
+    CMP V4, #1               // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff          // Move blue into A3 for colour if so
+    MOVNE A3, #0x0           // Else move black into A3
+    SUB V3, V3, A1           // Subtract x offset
+    LSR V3, #4               // Divide by 16 to get original y
+    MOV V4, A1               // Move x into V4
+    BL GoL_fill_gridxy_ASM   // Clear cursor in current position
+    CMP V3, #11              // Check if y is at 11
+    ADDNE V3, V3, #1         // Increment by 1 if y != 0
+    STRB V3, [V1, #1]        // Store new y position into memory
     // DRAW CURSOR
-    MOV A1, V4 // Move x into A1
-    MOV A2, V3 // Move y into A2
+    MOV A1, V4               // Move x into A1
+    MOV A2, V3               // Move y into A2
     MOV A3, #0xff
     LSL A3, #8
-    ADD A3, A3, #0xff // Instantiate white color
+    ADD A3, A3, #0xff        // Instantiate white color
     BL GoL_draw_cursorxy_ASM // Draw cursor
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
-   	MOV A1, #0x0
+   	MOV A1, #0x0             // Write 0 to data location in memory
     STR A1, [V1]
 	B IDLE
 
 move_cursor_left:
-    LDR V1, =CURSOR_POS // Load address of cursor position
-    LDRB A2, [V1, #1] // Get 2nd byte -> y position
-    LDRB A1, [V1] // Get 1ast byte -> x position
-    LDR V2, =GoLBoard // Load address of game board
-    MOV V3, A2 // Move y into V3
-    LSL V3, #4 // Compute y offset (multiply by 16)
-    ADD V3, V3, A1 // Add x offset
-    LDRB V4, [V2, V3] // Get byte at base address + offset
-    CMP V4, #1 // Check if state of cell at (x, y) is on
-    MOVEQ A3, #0xff // Move blue into A3 for colour if so
-    MOVNE A3, #0x0 // Else move black into A3
-    SUB V3, V3, A1 // Subtract x offset
-    LSR V3, #4 // Divide by 16 to get original y
-    MOV V4, A1 // Move x into V4
-    BL GoL_fill_gridxy_ASM // Clear cursor in current position
-    CMP V4, #0 // Check if x is at 0
-    SUBNE V4, V4, #1 // Decrement by 1 if x != 0
-    STRB V4, [V1] // Store new x position into memory
+    LDR V1, =CURSOR_POS      // Load address of cursor position
+    LDRB A2, [V1, #1]        // Get 2nd byte -> y position
+    LDRB A1, [V1]            // Get 1ast byte -> x position
+    LDR V2, =GoLBoard        // Load address of game board
+    MOV V3, A2               // Move y into V3
+    LSL V3, #4               // Compute y offset (multiply by 16)
+    ADD V3, V3, A1           // Add x offset
+    LDRB V4, [V2, V3]        // Get byte at base address + offset
+    CMP V4, #1               // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff          // Move blue into A3 for colour if so
+    MOVNE A3, #0x0           // Else move black into A3
+    SUB V3, V3, A1           // Subtract x offset
+    LSR V3, #4               // Divide by 16 to get original y
+    MOV V4, A1               // Move x into V4
+    BL GoL_fill_gridxy_ASM   // Clear cursor in current position
+    CMP V4, #0               // Check if x is at 0
+    SUBNE V4, V4, #1         // Decrement by 1 if x != 0
+    STRB V4, [V1]            // Store new x position into memory
     // DRAW CURSOR
-    MOV A1, V4 // Move x into A1
-    MOV A2, V3 // Move y into A2
+    MOV A1, V4               // Move x into A1
+    MOV A2, V3               // Move y into A2
     MOV A3, #0xff
     LSL A3, #8
-    ADD A3, A3, #0xff // Instantiate white color
+    ADD A3, A3, #0xff        // Instantiate white color
     BL GoL_draw_cursorxy_ASM // Draw cursor
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
-   	MOV A1, #0x0
+   	MOV A1, #0x0             // Write 0 to data location in memory
     STR A1, [V1]
 	B IDLE
 
 move_cursor_right:
-    LDR V1, =CURSOR_POS // Load address of cursor position
-    LDRB A2, [V1, #1] // Get 2nd byte -> y position
-    LDRB A1, [V1] // Get 1ast byte -> x position
-    LDR V2, =GoLBoard // Load address of game board
-    MOV V3, A2 // Move y into V3
-    LSL V3, #4 // Compute y offset (multiply by 16)
-    ADD V3, V3, A1 // Add x offset
-    LDRB V4, [V2, V3] // Get byte at base address + offset
-    CMP V4, #1 // Check if state of cell at (x, y) is on
-    MOVEQ A3, #0xff // Move blue into A3 for colour if so
-    MOVNE A3, #0x0 // Else move black into A3
-    SUB V3, V3, A1 // Subtract x offset
-    LSR V3, #4 // Divide by 16 to get original y
-    MOV V4, A1 // Move x into V4
-    BL GoL_fill_gridxy_ASM // Clear cursor in current position
-    CMP V4, #15 // Check if x is at 15
-    ADDNE V4, V4, #1 // Increment by 1 if x != 0
-    STRB V4, [V1] // Store new x position into memory
+    LDR V1, =CURSOR_POS      // Load address of cursor position
+    LDRB A2, [V1, #1]        // Get 2nd byte -> y position
+    LDRB A1, [V1]            // Get 1ast byte -> x position
+    LDR V2, =GoLBoard        // Load address of game board
+    MOV V3, A2               // Move y into V3
+    LSL V3, #4               // Compute y offset (multiply by 16)
+    ADD V3, V3, A1           // Add x offset
+    LDRB V4, [V2, V3]        // Get byte at base address + offset
+    CMP V4, #1               // Check if state of cell at (x, y) is on
+    MOVEQ A3, #0xff          // Move blue into A3 for colour if so
+    MOVNE A3, #0x0           // Else move black into A3
+    SUB V3, V3, A1           // Subtract x offset
+    LSR V3, #4               // Divide by 16 to get original y
+    MOV V4, A1               // Move x into V4
+    BL GoL_fill_gridxy_ASM   // Clear cursor in current position
+    CMP V4, #15              // Check if x is at 15
+    ADDNE V4, V4, #1         // Increment by 1 if x != 0
+    STRB V4, [V1]            // Store new x position into memory
     // DRAW CURSOR
-    MOV A1, V4 // Move x into A1
-    MOV A2, V3 // Move y into A2
+    MOV A1, V4               // Move x into A1
+    MOV A2, V3               // Move y into A2
     MOV A3, #0xff
     LSL A3, #8
-    ADD A3, A3, #0xff // Instantiate white color
+    ADD A3, A3, #0xff        // Instantiate white color
     BL GoL_draw_cursorxy_ASM // Draw cursor
 	// CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
-   	MOV A1, #0x0
+   	MOV A1, #0x0             // Write 0 to data location in memory
     STR A1, [V1]
 	B IDLE
 
-toggle_state_at_cursor_pos:
-    LDR V1, =CURSOR_POS // Load address of cursor position into V1
-    LDR V2, =GoLBoard // Get game board base address in V2
-    LDRB A1, [V1] // Load x into A1
-    LDRB A2, [V1, #1] // Load y into A2
-    LSL A2, #4 // Multiply y by 16 to get proper row offset
-    ADD A1, A2, A1 // Add in x offset
-    LDRB A3, [V2, A1] // Get cell (x, y)'s state
-    EOR A3, #1 // XOR with 1 to get complementary
-    STRB A3, [V2, A1] // Store new state into memory
+toggle_state:
+    LDR V1, =CURSOR_POS      // Load address of cursor position into V1
+    LDR V2, =GoLBoard        // Get game board base address in V2
+    LDRB A1, [V1]            // Load x into A1
+    LDRB A2, [V1, #1]        // Load y into A2
+    LSL A2, #4               // Multiply y by 16 to get proper row offset
+    ADD A1, A2, A1           // Add in x offset
+    LDRB A3, [V2, A1]        // Get cell (x, y)'s state
+    EOR A3, #1               // XOR with 1 to get complementary
+    STRB A3, [V2, A1]        // Store new state into memory
     // UPDATE CELL AT POSITION X, Y
-    LDR V1, =CURSOR_POS // Load address of cursor position
-    LDRB A1, [V1] // Load x into A1
-    LDRB A2, [V1, #1] // Load y into A2
-    CMP A3, #1 // Check if current cell is 1
-    MOVEQ A3, #0xff // Move colour blue if state is 1
-    MOVNE A3, #0x0 // Else, move colour black if state is 0
-    BL GoL_fill_gridxy_ASM // Fill the grid with the appropriate colour
+    LDR V1, =CURSOR_POS      // Load address of cursor position
+    LDRB A1, [V1]            // Load x into A1
+    LDRB A2, [V1, #1]        // Load y into A2
+    CMP A3, #1               // Check if current cell is 1
+    MOVEQ A3, #0xff          // Move colour blue if state is 1
+    MOVNE A3, #0x0           // Else, move colour black if state is 0
+    BL GoL_fill_gridxy_ASM   // Fill the grid with the appropriate colour
     // DRAW CURSOR
-    LDRB A1, [V1] // Load x into A1
-    LDRB A2, [V1, #1] // Load y into A2
+    LDRB A1, [V1]            // Load x into A1
+    LDRB A2, [V1, #1]        // Load y into A2
     MOV A3, #0xff
     LSL A3, #8
-    ADD A3, A3, #0xff // Instantitate white colour
+    ADD A3, A3, #0xff        // Instantitate white colour
     BL GoL_draw_cursorxy_ASM // Draw the cursor over updated cell
-    BL update_GoL_mirror // Update board mirror
+    BL update_GoL_mirror     // Update board mirror
     // CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	LDR V1, =DATA
-   	MOV A1, #0x0
+   	MOV A1, #0x0             // Write 0 to data location in memory
     STR A1, [V1]
     B IDLE
 
 update_GoL_board:
-    MOV V1, #0 // Instantiate y index
+    MOV V1, #0                   // Instantiate y index
     LDR V3, =GoLBoard
     LDR V4, =GoLBoardMirror
 
     for_each_row_in_board:
-        CMP V1, #12 // Check y = 12 (termination condition)
+        CMP V1, #12              // Check y = 12 (termination condition)
         BEQ update_GoL_board_end
-        MOV V2, #0 // Instantiate x index
+        MOV V2, #0               // Instantiate x index
 
     for_each_col_in_board:
-        CMP V2, #16 // Check x = 16 (termination condition)
+        CMP V2, #16              // Check x = 16 (termination condition)
         BEQ for_each_row_in_board_end
 
-        MOV A1, V1 // Move y index into A1 (use to hold offset)
-        LSL A1, #4 // Multiply by 16
-        ADD A1, A1, V2 // Add in x offset
-        LDRB A2, [V3, A1] // Load cell value of game board
-        CMP A2, #1 // Check if cell value is active in game board
+        MOV A1, V1               // Move y index into A1 (use to hold offset)
+        LSL A1, #4               // Multiply by 16
+        ADD A1, A1, V2           // Add in x offset
+        LDRB A2, [V3, A1]        // Load cell value of game board
+        CMP A2, #1               // Check if cell value is active in game board
         BEQ check_active_cell_condtions
         BNE check_inactive_cell_conditions
     
     check_active_cell_condtions:
-        MOV A2, #1 // Originally, set status of cell to be active
-        LDRB A3, [V4, A1] // Load cell value of game board mirror
-        CMP A3, #1 // Check if cell value in game board mirror is less than or equal to 1
-        MOVLE A2, #0 // If so, cell becomes inactive
-        CMP A3, #4 // Check if cell value in game board mirror is greater or equal to 4
-        MOVGE A2, #0 // If so, cell value becomes inactive
-        MOV A1, V1 // Move y index into A1 (use to hold offset)
-        LSL A1, #4 // Multiply by 16
-        ADD A1, A1, V2 // Add in x offset
-        STRB A2, [V3, A1] // Store new status of cell into memory
+        MOV A2, #1               // Originally, set status of cell to be active
+        LDRB A3, [V4, A1]        // Load cell value of game board mirror
+        CMP A3, #1               // Check if cell value in game board mirror is less than or equal to 1
+        MOVLE A2, #0             // If so, cell becomes inactive
+        CMP A3, #4               // Check if cell value in game board mirror is greater or equal to 4
+        MOVGE A2, #0             // If so, cell value becomes inactive
+        MOV A1, V1               // Move y index into A1 (use to hold offset)
+        LSL A1, #4               // Multiply by 16
+        ADD A1, A1, V2           // Add in x offset
+        STRB A2, [V3, A1]        // Store new status of cell into memory
         B for_each_col_in_board_end 
 
     check_inactive_cell_conditions:
-        MOV A2, #0 // Originally, set status of cell to be inactive
-        LDRB A3, [V4, A1] // Load cell value of game board mirror
-        CMP A3, #3 // Check if inactive cell has exactly 3 active neighbours
-        MOVEQ A2, #1 // If so, cell value becomes active
-        MOV A1, V1 // Move y index into A1 (use to hold offset)
-        LSL A1, #4 // Multiply by 16
-        ADD A1, A1, V2 // Add in x offset
-        STRB A2, [V3, A1] // Store new status of cell into memory
+        MOV A2, #0               // Originally, set status of cell to be inactive
+        LDRB A3, [V4, A1]        // Load cell value of game board mirror
+        CMP A3, #3               // Check if inactive cell has exactly 3 active neighbours
+        MOVEQ A2, #1             // If so, cell value becomes active
+        MOV A1, V1               // Move y index into A1 (use to hold offset)
+        LSL A1, #4               // Multiply by 16
+        ADD A1, A1, V2           // Add in x offset
+        STRB A2, [V3, A1]        // Store new status of cell into memory
         B for_each_col_in_board_end 
 
     for_each_col_in_board_end:
-        ADD V2, V2, #1 // Increment index
+        ADD V2, V2, #1           // Increment index
         B for_each_col_in_board
 
     for_each_row_in_board_end:
-        ADD V1, V1, #1 // Increment y index
+        ADD V1, V1, #1           // Increment y index
         B for_each_row_in_board
 
     update_GoL_board_end:
         MOV A1, #0xff
-        BL GoL_draw_board_ASM // Update displayed board
+        BL GoL_draw_board_ASM    // Update displayed board
         LDR V1, =CURSOR_POS
-        LDRB A1, [V1] // Load cursor x into A1
-        LDRB A2, [V1, #1] // Load cursor y into A2
+        LDRB A1, [V1]            // Load cursor x into A1
+        LDRB A2, [V1, #1]        // Load cursor y into A2
         MOV A3, #0xff
         LSL A3, #8
-        ADD A3, A3, #0xff // Instantiate white colour
+        ADD A3, A3, #0xff        // Instantiate white colour
         BL GoL_draw_cursorxy_ASM // Draw cursor
-        BL update_GoL_mirror // Update the mirror of the board as well
+        BL update_GoL_mirror     // Update the mirror of the board as well
         // CLEAR DATA VARIABLE UNTIL ISR CHANGES IT AGAIN
    	    LDR V1, =DATA
-   	    MOV A1, #0x0
+   	    MOV A1, #0x0             // Write 0 to data location in memory
         STR A1, [V1]
         B IDLE
 
@@ -764,7 +764,7 @@ GoL_draw_board_ASM:
         BL GoL_fill_gridxy_ASM // Fill grid cell at (x, y) if value is 1
         CMP V4, #1 // Check if value is 1 to re-update CPSR
         LSRNE A3, #16 // Shift colour back down 16
-
+        
         // CHECK IF CURRENT (X, Y) EQUALS CURSOR'S POSITION
         LDR A4, =CURSOR_POS // Load cursor position address into A4
         LDRH A1, [A4] // Load half-word content into A1 -> (x, y) = 2 bytes
@@ -774,12 +774,12 @@ GoL_draw_board_ASM:
         CMP A1, A2 // Check if current (x, y) is equal to cursor position
         MOV A1, V2 // Move col index into A1
         MOV A2, V1 // Move row index into A2
-        PUSH {A3}
+        PUSH {A3} // Store colour variable (blue)
         MOV A3, #0xff
         LSL A3, #8
         ADD A3, A3, #0xff // Instantiate white colour
-        BLEQ GoL_draw_cursorxy_ASM
-        POP {A3}
+        BLEQ GoL_draw_cursorxy_ASM // Draw cursor in white
+        POP {A3} // Restore original colour (blue)
 
         ADD V2, V2, #1 // Increment column index
         B for_each_column // Branch to next iteration
@@ -1185,7 +1185,7 @@ PS2_ISR:
     PUSH {V1-V2, LR}
     LDR V1, =DATA // Load address of DATA variable
     MOV A2, #0 // Clear A2
-    MOV V2, #0x80 // Delay counter set to 128
+    MOV V2, #0x80 // Delay counterset to 128
 
     // This delay loop is a rudimentary solution to a problem. The break signal's byte are sent with a silght delay. However,
     // considering the CPU's blazing frequency, the second byte of the break signal is often not capted. Therefore, we just
