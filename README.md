@@ -36,6 +36,7 @@ The process to setup the game is similar to the drivers:
 2. Click the compile button.
 3. Click the continue button to run the program.
 4. You can play the game interactively through the PS/2 keyboard and see anyresulting game state updates in the VGA display. For reference, an image of an example game state has been provided below.
+
 ![Screenshot 2024-04-22 at 10 09 42 PM](https://github.com/aliu07/ECSE324-Lab4/assets/114955212/d3da0c4d-81dd-4252-940b-922c809eb1e6)
 
 You will notice that the file containing the game of life is fairly large. We did not get hands on practice with linkers in this assembly course. However, it would be an interesting topic to look into in order to separate the code more neatly.
