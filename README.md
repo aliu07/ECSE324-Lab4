@@ -1,4 +1,4 @@
-# Conway's Game of Life
+# ECSE 324 - Lab 4
 This project is inspired from British mathematician John Horton Conway's game of life. The repository features drivers for the VGA display fo the emulator as well as the PS/2 keyboard. The emulator can be accessed at the following link: https://ecse324.ece.mcgill.ca/simulator/?sys=arm-de1soc
 
 ## VGA Drivers
